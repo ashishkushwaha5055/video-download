@@ -6,14 +6,12 @@ from yt_dlp import YoutubeDL
 
 app = Flask(__name__)
 
-def sanitize_filename(name):
-    return re.sub(r'[<>:"/\\|?*]', '_', name)
-
 def get_media_info(url):
     ydl_opts = {
         "quiet": True,
         "extract_flat": True,
         "skip_download": True,
+        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
     }
     with YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
@@ -44,12 +42,16 @@ def get_info():
         is_playlist = info.get("_type") == "playlist" or info.get("entries") is not None
 
         if is_playlist:
-            return jsonify({"error": "Playlist downloading is disabled on cloud deployment due to timeout limits. Please use single video links."}), 400
+            return jsonify({"error": "Playlist downloading is disabled on cloud deployment due to timeout limits."}), 400
         else:
             title = info.get("title", "YouTube Video")
             duration = info.get("duration")
             
-            with YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
+            with YoutubeDL({
+                "quiet": True, 
+                "skip_download": True,
+                "extractor_args": {"youtube": {"player_client": ["android", "web"]}}
+            }) as ydl:
                 full_info = ydl.extract_info(url, download=False)
             
             formats = list_video_formats(full_info)
@@ -83,23 +85,28 @@ def download():
     try:
         tmp_dir = tempfile.mkdtemp()
         
+        ydl_base_opts = {
+            "quiet": True,
+            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+        }
+
         if media_type == "mp3":
             ydl_opts = {
+                **ydl_base_opts,
                 "format": "bestaudio/best",
                 "outtmpl": os.path.join(tmp_dir, "%(title)s.%(ext)s"),
                 "postprocessors": [
                     {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}
                 ],
-                "quiet": True,
             }
         elif media_type == "mp4":
             res = int(resolution) if resolution else 720
             format_string = f"bestvideo[height<={res}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={res}]+bestaudio/best[height<={res}]"
             ydl_opts = {
+                **ydl_base_opts,
                 "format": format_string,
                 "merge_output_format": "mp4",
                 "outtmpl": os.path.join(tmp_dir, "%(title)s_%(height)sp.%(ext)s"),
-                "quiet": True,
             }
         else:
             return jsonify({"error": "Invalid media type"}), 400
