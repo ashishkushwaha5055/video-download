@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Downloader</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>YouTube Downloader</h1>
+            <p>Paste a YouTube link to download instantly.</p>
+        </header>
+
+        <div class="card" id="url-card">
+            <div class="input-group">
+                <input type="text" id="url-input" placeholder="Paste YouTube Video URL...">
+                <button onclick="fetchInfo()">Fetch Info</button>
+            </div>
+        </div>
+
+        <div id="loader" class="hidden">
+            <div class="spinner"></div>
+            <p>Fetching video details...</p>
+        </div>
+
+        <div class="card hidden" id="options-card">
+            <div class="media-info">
+                <h3 id="media-title"></h3>
+                <p id="media-subtitle"></p>
+            </div>
+
+            <div class="format-selection">
+                <label>Format:</label>
+                <div class="format-buttons">
+                    <button class="format-btn active" data-type="mp4" onclick="selectType('mp4')">MP4 Video</button>
+                    <button class="format-btn" data-type="mp3" onclick="selectType('mp3')">MP3 Audio</button>
+                </div>
+            </div>
+
+            <div id="resolution-group" class="resolution-container">
+                <label for="resolution-select">Resolution:</label>
+                <select id="resolution-select"></select>
+            </div>
+
+            <button id="download-btn" onclick="startDownload()">Download File</button>
+        </div>
+
+        <div id="status-card" class="card hidden">
+            <h3 id="status-title">Processing Download...</h3>
+            <p id="status-message">Please wait while the file is prepared. Your download will start automatically.</p>
+            <button class="hidden" id="reset-btn" onclick="resetForm()">Download Another</button>
+        </div>
+    </div>
+
+    <script>
+        let currentUrl = '';
+        let mediaType = 'mp4';
+
+        async function fetchInfo() {
+            const url = document.getElementById('url-input').value.trim();
+            if (!url) return alert('Please enter a URL.');
+
+            document.getElementById('url-card').classList.add('hidden');
+            document.getElementById('loader').classList.remove('hidden');
+
+            try {
+                const res = await fetch('/get_info', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const data = await res.json();
+
+                if (data.error) {
+                    alert(data.error);
+                    return resetForm();
+                }
+
+                currentUrl = data.url;
+                document.getElementById('media-title').innerText = data.title;
+                document.getElementById('media-subtitle').innerText = `Duration: ${data.duration}s`;
+
+                const resSelect = document.getElementById('resolution-select');
+                resSelect.innerHTML = '';
+                data.resolutions.forEach(r => {
+                    const opt = document.createElement('option');
+                    opt.value = r.height;
+                    opt.text = r.label;
+                    resSelect.appendChild(opt);
+                });
+
+                document.getElementById('loader').classList.add('hidden');
+                document.getElementById('options-card').classList.remove('hidden');
+            } catch (err) {
+                alert('Connection error.');
+                resetForm();
+            }
+        }
+
+        function selectType(type) {
+            mediaType = type;
+            document.querySelectorAll('.format-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.format-btn[data-type="${type}"]`).classList.add('active');
+            document.getElementById('resolution-group').style.display = type === 'mp3' ? 'none' : 'block';
+        }
+
+        async function startDownload() {
+            const resolution = document.getElementById('resolution-select').value;
+            document.getElementById('options-card').classList.add('hidden');
+            document.getElementById('status-card').classList.remove('hidden');
+
+            try {
+                const response = await fetch('/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: currentUrl, type: mediaType, resolution })
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.error || 'Download failed');
+                }
+
+                const blob = await response.blob();
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = mediaType === 'mp3' ? 'download.mp3' : 'download.mp4';
+                
+                if (contentDisposition && contentDisposition.includes('filename=')) {
+                    filename = contentDisposition.split('filename=')[1].replace(/["']/g, '');
+                }
+
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+
+                document.getElementById('status-title').innerText = "Download Complete!";
+                document.getElementById('status-message').innerText = "Your file has been downloaded successfully.";
+            } catch (err) {
+                document.getElementById('status-title').innerText = "Error";
+                document.getElementById('status-message').innerText = err.message;
+            }
+            document.getElementById('reset-btn').classList.remove('hidden');
+        }
+
+        function resetForm() {
+            document.getElementById('url-input').value = '';
+            document.getElementById('loader').classList.add('hidden');
+            document.getElementById('options-card').classList.add('hidden');
+            document.getElementById('status-card').classList.add('hidden');
+            document.getElementById('reset-btn').classList.add('hidden');
+            document.getElementById('url-card').classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
